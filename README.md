@@ -1,6 +1,1 @@
-# Master project Equinor 2025
-
-### Multi agent network that will be able to add a radix config to Github for an app.
-
-
-## To be continued.
+IyBNYXN0ZXIgcHJvamVjdCBFcXVpbm9yIDIwMjUKCiMjIyBNdWx0aSBhZ2Vu\ndCBuZXR3b3JrIHRoYXQgd2lsbCBiZSBhYmxlIHRvIGFkZCBhIHJhZGl4IGNv\nbmZpZyB0byBHaXRodWIgZm9yIGFuIGFwcC4KCgojIyBUbyBiZSBjb250aW51\nZWQuCgpQcmVycXVpc2l0ZXM6ClB5dGhvbiAzLjExIG9yIG5ld2VyCg==
