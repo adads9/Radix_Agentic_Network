@@ -1,1 +1,10 @@
-IyBNYXN0ZXIgcHJvamVjdCBFcXVpbm9yIDIwMjUKCiMjIyBNdWx0aSBhZ2Vu\ndCBuZXR3b3JrIHRoYXQgd2lsbCBiZSBhYmxlIHRvIGFkZCBhIHJhZGl4IGNv\nbmZpZyB0byBHaXRodWIgZm9yIGFuIGFwcC4KCgojIyBUbyBiZSBjb250aW51\nZWQuCgpQcmVycXVpc2l0ZXM6ClB5dGhvbiAzLjExIG9yIG5ld2VyCg==
+# Radix Agentic Network
+
+## Prerequisites
+
+- Python 3.11 or newer
+- Docker
+
+## Installation
+
+Instructions on installing the Radix Agentic Network go here.
