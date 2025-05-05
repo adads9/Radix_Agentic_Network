@@ -1,6 +1,10 @@
-# Master project Equinor 2025
+# Radix Agentic Network
 
-### Multi agent network that will be able to add a radix config to Github for an app.
+## Prerequisites
 
+- Python 3.11 or newer
+- Docker
 
-## To be continued.
+## Installation
+
+Instructions on installing the Radix Agentic Network go here.
