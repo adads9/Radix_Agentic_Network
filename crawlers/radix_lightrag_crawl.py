@@ -4,21 +4,68 @@ import httpx
 import requests
 from xml.etree import ElementTree
 from datetime import datetime, timezone
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-import logfire
+
 from dotenv import load_dotenv
-
+# from agents.lightrag_react_agent import embedding_func, llm_model_func
 from lightrag import LightRAG
-from lightrag.llm.openai import gpt_4o_mini_complete, openai_embed
 from lightrag.kg.shared_storage import initialize_pipeline_status
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+from lightrag.utils import EmbeddingFunc
+from lightrag.llm.azure_openai import azure_openai_complete_if_cache, azure_openai_embed
+import numpy as np
 
 # Load environment variables from .env file
 load_dotenv()
 
-WORKING_DIR = "./radix-docs"
-if not os.path.exists(WORKING_DIR):
+WORKING_DIR = "./radix_docs_embed_3072_o3_mini"
+if not os.path.exists(WORKING_DIR): 
     os.mkdir(WORKING_DIR)
+
+embed_model = os.getenv("EMBED_MODEL_LARGE")
+llm_model=os.getenv("REASONING_LLM_MODEL")
+api_key=os.getenv("API_KEY")
+api_version=os.getenv("BASE_LLM_API_VERSION")
+api_embed_version=os.getenv("EMBED_API_VERSION")
+azure_endpoint=os.getenv("BASE_API_BASE")
+
+azure_embed_endpoint=os.getenv("EMBED_API_BASE")
+
+azure_point=os.getenv("BASE_FOR_LIGHTRAG")
+
+
+async def llm_model_func(
+    prompt,
+    system_prompt=None,
+    history_messages=[],
+    keyword_extraction=False,
+    **kwargs
+) -> str:
+    # Rename max_tokens to max_completion_tokens if present (for newer models than 4o)
+    if "max_tokens" in kwargs:
+        kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+    return await azure_openai_complete_if_cache(
+        llm_model,   # deployment *name*
+        prompt,
+        system_prompt=system_prompt,
+        history_messages=history_messages,
+        api_key=api_key,
+        base_url=azure_point,
+        api_version=api_version,
+        **kwargs
+    )
+
+async def embedding_func(texts: list[str]) -> np.ndarray:
+    return await azure_openai_embed(
+        model=embed_model,  # e.g. text-embed-3-sm
+        texts=texts,
+        api_key=api_key,
+        base_url=azure_point,
+        api_version=api_embed_version  # or 4096 depending on the deployment
+    )  # or 4096 depending on the deployment
 
 # --- Function from radix_docs_crawler.py to get the sitemap URLs ---
 def get_radix_docs_urls():
@@ -92,8 +139,12 @@ async def fetch_all_radix_docs_contents() -> str:
 async def initialize_rag():
     rag = LightRAG(
         working_dir=WORKING_DIR,
-        embedding_func=openai_embed,
-        llm_model_func=gpt_4o_mini_complete
+        embedding_func=EmbeddingFunc(
+            embedding_dim=3072,  # Adjust based on your model
+            max_token_size=8191,  # Adjust based on your model
+            func=embedding_func  # Use the OpenAI embedding function
+        ),
+        llm_model_func=llm_model_func
     )
     await rag.initialize_storages()
     await initialize_pipeline_status()
