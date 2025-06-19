@@ -9,20 +9,13 @@ from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from lightrag_react_agent import docs_agent
 import subprocess, atexit, pathlib
 import os
+from radix_validate import radix_linter_agent
+
 
 import os, subprocess, atexit, pathlib, sys
 from dotenv import load_dotenv
 load_dotenv()
 
-SPECTRAL_IMAGE = "stoplight/spectral:latest"
-CONTAINER_NAME = "spectral-linter"
-
-
-# Pull the Spectral image at startup
-subprocess.run(["docker", "pull", SPECTRAL_IMAGE], check=True)
-
-
-from radix_validate import radix_linter_agent
 
 llm = AzureChatOpenAI(
     model=os.getenv("SUPERVISOR_LLM_MODEL"),
@@ -30,7 +23,7 @@ llm = AzureChatOpenAI(
     api_version=os.getenv("BASE_LLM_API_VERSION"), 
     base_url=os.getenv("BASE_API_BASE"),
     streaming=True,
-    callbacks=[StreamingStdOutCallbackHandler()],  # Uncomment for streaming output 
+    #callbacks=[StreamingStdOutCallbackHandler()],  # Uncomment for streaming output (streaming is tricky with several agents, so use with care)
 )    
 
 supervisor_graph = (
@@ -40,9 +33,10 @@ supervisor_graph = (
         prompt = """
                 You are the *Supervisor* in a multi-agent LangGraph system.
 
+
                 ────────────────────  TEAM ROSTER  ────────────────────
                 • docs_agent  
-                  - Uses `retrieve` to look up Radix documentation and answer all questions regarding radix. It can generate complete artifacts, f.ex radixconfig.yaml, wrapped in fenced code blocks.
+                  - Agent looks up Radix documentation and answer all questions regarding radix. It can generate complete artifacts, f.ex radixconfig.yaml, wrapped in fenced code blocks.
                   - Responsible for drafting files such as the radixconfig.yaml when requested.
 
                 • github_agent  
@@ -66,7 +60,7 @@ supervisor_graph = (
                    d. Reply FINAL only after the PR URL is available.
                 
                 5. **Radix Configuration Tasks**:
-                   - If a user asks for modifications on their radixconfig file or requests its creation, first instruct **docs_agent** to generate a draft version.
+                   - If a user asks for modifications on their radixconfig file or requests its creation, first instruct **docs_agent** to get the general info of all the fields in a radixconfig, or for creation to generate a draft version based on radix config docs.
                    - Then, delegate to **radix_linter_agent** to validate and apply minimal patches so the file adheres to the radix validation rules.
                    - Only after validation is complete should the final version be passed back to the user.
 
@@ -106,8 +100,3 @@ async def chat():
 
 if __name__ == "__main__":
     asyncio.run(chat())
-
-
-""" Work needed with the radix linter agent and the ruleset, it is working now but
-    needs to be tested with the ruleset and the apply patch tool. Maybe look at a mcp for this instead of the docker container.
-    """
