@@ -1,218 +1,312 @@
-import os
-import asyncio
-import sys
+"""
+
+This file sets up a LightRAG-based React agent for Radix documentation queries.
+The agent is used in agents\agent_router.py to handle Radix documentation queries and provide accurate responses based on the latest documentation for the network.
+
+
+It includes embedding setup, LLM model functions, and tools for retrieval and judging responses.
+This agent can retrieve information from Radix documentation, judge the relevance and groundedness of responses, and ensure that answers are accurate and well-supported by the retrieved context.
+It also includes optional MCP tools for fetching additional information if needed.
+
+
+
+Features:
+
+- Embedding setup using Azure OpenAI for text embeddings.
+- LLM model function for generating responses.
+- LightRAG initialization for document retrieval.
+- Tools for retrieving Radix documentation and judging responses.
+- LLM-as-Judge for evaluating the relevance and groundedness of responses.
+- React agent setup for handling Radix documentation queries.
+
+19.06.2025
+"""
+
+
+import os, sys, asyncio
 from pathlib import Path
-
-# Add the project root to sys.path:
-sys.path.append(str(Path(__file__).resolve().parent.parent))
-
 from dataclasses import dataclass
 from dotenv import load_dotenv
+import functools
 from lightrag import LightRAG, QueryParam
-from lightrag.llm.openai import openai_embed, openai_complete_if_cache
+from lightrag.utils import EmbeddingFunc
+from lightrag.kg.shared_storage import initialize_pipeline_status
+from lightrag.llm.azure_openai import (
+    azure_openai_embed,
+    azure_openai_complete_if_cache,
+)
 from langchain_openai import AzureChatOpenAI
 from langchain_core.tools import tool
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langgraph.prebuilt import create_react_agent
-from langchain_core.tools import tool
-import numpy as np
-from openai import AsyncAzureOpenAI, AsyncOpenAI
-from lightrag.llm.azure_openai import azure_openai_complete_if_cache, azure_openai_embed
-from lightrag.utils import EmbeddingFunc
-from openevals.llm import create_llm_as_judge
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools
+from langchain.tools import BaseTool
+from openevals.llm import create_llm_as_judge          
+from openevals.prompts import (
+    RAG_RETRIEVAL_RELEVANCE_PROMPT,
+    RAG_GROUNDEDNESS_PROMPT,
+)                                                   
 
 load_dotenv()
 
-embed_model = os.getenv("RETRIEVER_EMBED_MODEL")
-llm_model=os.getenv("RETRIEVER_LLM_MODEL")  # e.g. gpt-4o-mini
-api_key=os.getenv("API_KEY")
-api_version=os.getenv("BASE_LLM_API_VERSION")
-api_embed_version=os.getenv("EMBED_API_VERSION")
-azure_endpoint=os.getenv("BASE_API_BASE")
-azure_embed_endpoint=os.getenv("EMBED_API_BASE")
-azure_point=os.getenv("BASE_FOR_LIGHTRAG")
-lightrag_mode=os.getenv("LIGHTRAG_MODE")
+#  Environment variables for the agent
+docs_agent_model      = os.getenv("DOCS_AGENT_LLM_MODEL")
+embed_model           = os.getenv("RETRIEVER_EMBED_MODEL")
+retrieve_model        = os.getenv("RETRIEVER_LLM_MODEL")
+api_key               = os.getenv("API_KEY")
+api_version           = os.getenv("BASE_LLM_API_VERSION")
+api_embed_version     = os.getenv("EMBED_API_VERSION")
+azure_endpoint        = os.getenv("BASE_API_BASE")
+azure_embed_endpoint  = os.getenv("EMBED_API_BASE")
+azure_point           = os.getenv("BASE_FOR_LIGHTRAG")
+lightrag_mode         = os.getenv("LIGHTRAG_MODE")
+judge_llm             = os.getenv("JUDGE_LLM_MODEL")
+judge                 = os.getenv("JUDGE_RESPONSE")
+# fetch                 = os.getenv("FETCH_MCP")
 
-print(llm_model)
-# Specify the working directory based on the correct embedding model.
+
+
+# ────────────────────────────────────────────────────────────────────────
+# ───────────── 1.  Embedding setup and LightRAG Initialization ──────────
+# ────────────────────────────────────────────────────────────────────────
 
 if embed_model == "text-embedding-3-large":
-    WORKING_DIR = "./radix_docs_embed_3072"
-    embedding_dim = 3072
-    max_token_size = 8191
-elif embed_model == "text-embedding-3-small":
-    embedding_dim = 1536
-    max_token_size = 8191
-    WORKING_DIR = "./radix_docs"
+    WORKING_DIR, embedding_dim, max_token_size = "./radix_docs_embed_3072", 3072, 8191
 else:
-    raise ValueError(f"Unsupported embed_model: {embed_model}. Expected 'text-embedding-3-large' or 'text-embedding-3-small'.")
-print("Working directory:", WORKING_DIR)
-if not os.path.exists(WORKING_DIR):
-    os.mkdir(WORKING_DIR)
+    WORKING_DIR, embedding_dim, max_token_size = "./radix_docs", 1536, 8191
 
-async def llm_model_func(
-    prompt,
-    system_prompt= None,
-    history_messages= [],
-    keyword_extraction = False,
-    **kwargs
-) -> str:
-    """
-    Completion function for the LightRAG Agent.
+os.makedirs(WORKING_DIR, exist_ok=True)
 
-    This function is called by the LightRAG Agent to generate completions for the user's query.
-    It uses the Azure OpenAI API to call the specified deployment (llm_model) and return the generated text.
+async def embedding_func(texts: list[str]):
+    return await azure_openai_embed(
+        model=embed_model,
+        texts=texts,
+        api_key=api_key,
+        base_url=azure_point,
+        api_version=api_embed_version,
+    )
 
-    Args:
-        prompt (str): The input prompt for the completion.
-        system_prompt (str, optional): The system prompt for the completion. Defaults to None.
-        history_messages (list, optional): The history messages for the completion. Defaults to [].
-        keyword_extraction (bool, optional): Whether to perform keyword extraction. Defaults to False.
-        **kwargs: Additional keyword arguments to pass to the Azure OpenAI API.
-
-    Returns:
-        str: The generated completion text.
-    """
+async def llm_model_func(prompt, system_prompt=None, history_messages=[], keyword_extraction=False, **kwargs) -> str:
     return await azure_openai_complete_if_cache(
-        llm_model,   # deployment *name*
+        retrieve_model,
         prompt,
         system_prompt=system_prompt,
         history_messages=history_messages,
-        api_key = api_key,
-        base_url = azure_point,
+        api_key=api_key,
+        base_url=azure_point,
         api_version=api_version,
         **kwargs
     )
 
-"""
-_azure = AsyncAzureOpenAI(
-    api_key=api_key,
-    api_version=api_version,
-    azure_endpoint=azure_endpoint,
-)
-
-print("Azure client initialized:", _azure)
-
-async def llm_model_func(prompt, system_prompt=None, history_messages=None,
-                         keyword_extraction=False, **kwargs) -> str:
-    # LightRAG ≤0.3 passes a str; ≥0.4 passes list[dict]
-    # 1. Normalize prompt → list[dict]
-    if isinstance(prompt, str):
-        messages = [{"role": "user", "content": prompt}]
-    elif isinstance(prompt, dict):
-        messages = [prompt]
-    elif isinstance(prompt, list):
-        messages = []
-        for item in prompt:
-            if hasattr(item, "model_dump"):
-                messages.append(item.model_dump())
-            elif isinstance(item, dict):
-                messages.append(item)
-            else:
-                messages.append({"role":"user","content": str(item)})
-    else:
-        raise TypeError(f"Unsupported prompt type: {type(prompt)}")
-
-    # Azure client – no extra 'model' param! use deployment in URL instead
-    resp = await _azure.chat.completions.create(
-        model=llm_model,  # deployment *name*
-        messages=messages,
-        stream=kwargs.get("stream", False),  # pass-through if present
-    )
-    return resp.choices[0].message.content
-
-
-_azure_embeddings = AsyncAzureOpenAI( 
-    api_key=api_key,
-    api_version=api_embed_version,
-    azure_endpoint=azure_embed_endpoint,
-) """
-async def embedding_func(texts: list[str]) -> np.ndarray:
-    """
-    Asynchronously obtains embeddings for a list of texts using Azure OpenAI.
-
-    Args:
-        texts (list[str]): A list of strings for which embeddings are to be generated.
-
-    Returns:
-        np.ndarray: An array of embeddings corresponding to the input texts.
-    """
-
-    return await azure_openai_embed(
-        model=embed_model,  # e.g. text-embed-3-sm
-        texts=texts,
-        api_key=api_key,
-        base_url=azure_point,
-        api_version=api_embed_version
-    )  
-
-# Initialize the LightRAG instance asynchronously—instead of the extra pydantic wrapper.
+# Initialize LightRAG with the embedding function and LLM model function
 async def initialize_rag() -> LightRAG:
     rag = LightRAG(
         working_dir=WORKING_DIR,
-        embedding_func=EmbeddingFunc(embedding_dim=embedding_dim, max_token_size=max_token_size, func=embedding_func),            # 👈 custom function
-        llm_model_func=llm_model_func,   # or your Azure chat deployment
+        embedding_func=EmbeddingFunc(
+            embedding_dim=embedding_dim,
+            max_token_size=max_token_size,
+            func=embedding_func,
+        ),
+        llm_model_func=llm_model_func,
     )
     await rag.initialize_storages()
+    await initialize_pipeline_status()
     return rag
 
 _global_rag = asyncio.run(initialize_rag())
 
 
+# Optional: Load MCP tools if fetch is enabled (commented out for now)
+"""
+# ---------- MCP Client ----------
+client = MultiServerMCPClient({
+  "fetch": {
+    "command": "python",
+    "args": ["-m", "mcp_server_fetch"],
+    "transport": "stdio",
+  }})
+
+async def load_mcp_tools() -> list[BaseTool]:
+    # Retrieve all tools from all configured MCP servers
+    return await client.get_tools()"""
+
+
+
+# ────────────────────────────────────────────────────────────────────────
+# ─────────────────── 2.  LLM-as-Judge plumbing ──────────────────────────
+# ────────────────────────────────────────────────────────────────────────
+
+
+def _build_judge_llm() -> AzureChatOpenAI:
+    """
+    Deterministic model for scoring.
+    Temperature = 0 keeps judgments stable across runs.
+    """
+    return AzureChatOpenAI(
+        model=judge_llm,
+        api_key=api_key,
+        api_version=api_version,
+        azure_endpoint=azure_point,
+        temperature=0.0,
+        streaming=False,
+    )                                                  
+
+# Two evaluators from OpenEvals (RAG triad: relevance + groundedness)
+_judge_llm = _build_judge_llm()
+
+retrieval_relevance_eval = create_llm_as_judge(
+    prompt=RAG_RETRIEVAL_RELEVANCE_PROMPT,
+    feedback_key="retrieval_relevance",
+    judge=_judge_llm,
+)                                                     
+
+groundedness_eval = create_llm_as_judge(
+    prompt=RAG_GROUNDEDNESS_PROMPT,
+    feedback_key="groundedness",
+    judge=_judge_llm,
+)                                                     
+
+class RadixJudge:
+    """Bundle both scores + pass/fail flag."""
+    def __init__(self, retrieval_eval, grounded_eval):
+        self._ret_eval = retrieval_eval
+        self._grd_eval = grounded_eval
+
+    def __call__(self, *, question: str, answer: str, context):
+        ret_score = self._ret_eval(inputs=question, context=context)
+        grd_score = self._grd_eval(outputs=answer, context=context)
+        return {
+            "retrieval_relevance": ret_score,
+            "groundedness": grd_score,
+            "overall_pass": bool(ret_score["score"] and grd_score["score"]),
+        }
+
+llm_judge = RadixJudge(retrieval_relevance_eval, groundedness_eval)
+
+# ────────────────────────────────────────────────────────────────────────
+# ─────────────────── 3. Tools for the Docs Agent  ───────────────────────
+# ────────────────────────────────────────────────────────────────────────
 
 @tool
 async def retrieve(search_query: str) -> str:
-    """Search Radix docs and return a synthesis.
-
-    mode: Specifies the retrieval mode:
-
-        - "local": Focuses on context-dependent information.
-        - "global": Utilizes global knowledge.
-        - "hybrid": Combines local and global retrieval methods.
-        - "naive": Performs a basic search without advanced techniques.
-        - "mix": Integrates knowledge graph and vector retrieval.
     """
-    return await _global_rag.aquery(search_query, param=QueryParam(mode=lightrag_mode))
+    Search Radix docs and return the context needed to answer the query"
+      output: 'contexts': [str] of retrieved passages
+    """
+    result = await _global_rag.aquery(
+        search_query,
+        param=QueryParam(
+            mode=lightrag_mode,   # we want answer + context  # **NEW** as of LightRAG ≥0.5.0
+        )
+    )
+    return result  # {"answer": str, "contexts": [...]}  :contentReference[oaicite:6]{index=6}
 
 
-# Create the LLM judge for the agent.
-llm_judge = create_llm_as_judge(
-    model=llm_model_func,
+@tool
+async def judge_response(response: str, question: str, context: list[str]) -> dict:
+    """
+    Judge whether `response` fully and faithfully answers `question`
+    given LightRAG `context` chunks.
+
+    inputs:
+    - response (generated answer)
+    - question (original query from user)
+    - context (retrieved context from retriever)
+
+
+    """
+    
+
+    loop = asyncio.get_running_loop()
+    fn = functools.partial(
+        llm_judge,
+        question=question,
+        answer=response,
+        context=context,
+    )
+    return await loop.run_in_executor(None, fn)
+
+# ────────────────────────────────────────────────────────────────────────
+# 3.  Experimental activation (prompts, tools)
+# ────────────────────────────────────────────────────────────────────────
+
+prompt_for_retrival=("You are a knowledgeable assistant designed to answer questions about Radix documentation.\n"
+                    f"Always Use the 'retrieve' tool to extract pertinent information from the documentation.\n"
+                    "If the information is unavailable, provide your best general knowledge response. "
+                    "If you do not know the answer to the question, or cannot find the information in the docs, do not make up an answer and inform the user appropiatly.\n"
+                    
+                    "RULES:\n"
+                    "Make sure to always use the most relevant and up-to-date information from the Radix documentation.\n"
+                    "Whenever you are asked about Radix or any documentation, know that you are supposed to use the 'retrieve' tool to get the most accurate and relevant information.\n"
+                    "If the question is related to radix config, either to modify or to create a new one, please ensure that you are using the correct syntax and format.\n"
+                    "You should also do a deep-dive in the specifics of the radix config documentation, ensuring that the produced result is including every detail that it needs.\n"
+                    "If the information is unavailable, provide your best general knowledge response. "
+                    "If you do not know the answer to the question, or cannot find the information in the docs, do not make up an answer and inform the user appropriately.\n")
+
+prompt_for_retrival_judge=("You are a knowledgeable assistant designed to answer questions about Radix documentation.\n"
+                            f"Always use the 'retrieve' tool to extract pertinent information from the documentation, "
+                            "and generate an answer for the question based on the information from the documentation.\n"
+                            "After the answer is generated, "
+                            "you should always use the 'judge_response' tool to evaluate the generated answer and the retrieved information.\n" 
+                            "Only give the FINAL answer back when it has passed the 'judge_respone' tool, and the 'overall_pass' is 'true'\n\n"
+                            "You should use the feedback from the 'judge_response' to search for the reason it has failed, and make sure to fix it with the correct information."
+                            
+                            "RULES:\n"
+                            "Make sure to always use the most relevant and up-to-date information from the Radix documentation.\n"
+                            "Whenever you are asked about Radix or any documentation, know that you are supposed to use the 'retrieve' tool to get the most accurate and relevant information.\n"
+                            "If the question is related to radix config, either to modify or to create a new one, please ensure that you are using the correct syntax and format.\n"
+                            "You should also do a deep-dive in the specifics of the radix config documentation, ensuring that the produced result is including every detail that it needs.\n"
+                            "If the information is unavailable, provide your best general knowledge response. "
+                            "If you do not know the answer to the question, or cannot find the information in the docs, do not make up an answer and inform the user appropriately.\n")
+
+
+prompt_for_fetch=("You are a knowledgeable assistant designed to answer questions about Radix documentation.\n"
+                    f"Use the tools to extract pertinent information from the documentation from the Radix website: https://radix.equinor.com/ \n"
+                    "If the question is related to radix config, either to modify or to create a new one, please ensure that you are using the correct syntax and format.\n"
+                    "You should also do a deep-dive in the specifics of the radix config documentation: (https://radix.equinor.com/radix-config), ensuring that the produced result is including every detail that it needs.\n"
+                    "If the information is unavailable, provide your best general knowledge response, and clarify that the information is unavailable. "
+                    "If you do not know the answer to the question, or cannot find the information in the docs, do not make up an answer and inform the user appropiatly.\n")
+
+
+"""
+if fetch=='on':
+    fetch_mcp = asyncio.run(load_mcp_tools())
+    tools.extend(fetch_mcp)
+    prompt_to_use=prompt_for_fetch"""
+
+tools=[retrieve]
+prompt_to_use=prompt_for_retrival
+
+# If judge is enabled, add the judge_response tool and change the prompt with the judge prompt. 
+# judge is a value that can be turned on or off in the .env file, and is used to determine if the judge_response tool should be used or not.
+
+if judge=='on':
+    tools.append(judge_response)
+    prompt_to_use=prompt_for_retrival_judge
+    print("Judge response is turned on, using the judge_response tool for the docs agent. To turn it off, set JUDGE_RESPONSE=off in the .env file.")
+elif judge=='off':
+    print("Judge response is turned off, not using the judge_response tool for the docs agent. To turn it on, set JUDGE_RESPONSE=on in the .env file.")
+else:
+    print("Judge_response tool is not set, or is invalid, please set JUDGE_RESPONSE=on or JUDGE_RESPONSE=off in the .env file.")
+
+
+# ────────────────────────────────────────────────────────────────────────
+# ────────────────────────── 4.  Agent setup ─────────────────────────────
+# ────────────────────────────────────────────────────────────────────────
+
+# Create the LLM for the docs agent
+llm = AzureChatOpenAI(                                
+    model=docs_agent_model,
     api_key=api_key,
     api_version=api_version,
     azure_endpoint=azure_endpoint,
     streaming=True,
-    callbacks=[StreamingStdOutCallbackHandler()]
 )
 
-# judge the agent's responses.
-@tool
-async def judge_response(response: str, question: str, context: str) -> str:
-    return await llm_judge.judge_response(response, question, context)
-
-
-
-# Create the main LLM instance with streaming enabled.
-llm = AzureChatOpenAI(
-    model=llm_model,
-    api_key=api_key,
-    api_version=api_version,
-    azure_endpoint=azure_endpoint, 
-)    
-
-# Create the docs_agent as a react agent.
+# Create the React agent for the docs
 docs_agent = create_react_agent(
     model=llm,
-    tools=[retrieve],
+    tools=tools,
     name="docs_agent",
-    prompt=(
-        "You are a knowledgeable assistant designed to answer questions about Radix documentation.\n"
-        "Use the retrieve tool to extract pertinent information from the documentation.\n"
-        "Make sure to always use the most relevant and up-to-date information from the Radix documentation.\n"
-        "Whenever you are asked about Radix or any documentation, know that you are supposed to use the retrieve tool to get the most accurate and relevant information.\n"
-        "If the question is related to radix config, either to modify or to create a new one, please ensure that you are using the correct syntax and format.\n"
-        "You should also do a deep-dive in the specifics of the radix config documentation, ensuring that the produced result is including every detail that it needs.\n"
-        "If the information is unavailable, provide your best general knowledge response. "
-        "If you do not know the answer to the question, or cannot find the information in the docs, do not make up an answer and inform the user appropriately.\n"
-    )
+    prompt=prompt_to_use,
 )
