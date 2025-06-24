@@ -21,7 +21,7 @@ The supervisor agent routes user requests to the correct agent(s) based on the n
 - **Entry Point:** `agents/agent_router.py` (main supervisor and chat loop)
 - **Agents:**
   - `agents/lightrag_react_agent.py` (docs_agent)
-  - `agents/gh_ag.py` (github_agent)
+  - `agents/github_agent.py` (github_agent)
   - `agents/radix_validate.py` (radix_linter_agent)
 
 ## System Architecture
