@@ -50,7 +50,7 @@ The supervisor agent routes user requests to the correct agent(s) based on the n
   - Embedding and LLM functions powered by Azure OpenAI.
   - Tools:
     - `retrieve`: Using LightRAG For document retrieval and context-aware answering.
-    - `judge_response`: Evaluate teh retrivial relevancy and the groundness of the answer using Openevals LLM-As-A-Judge (Can be turned on or off through .env)
+    - `judge_response`: Evaluate the retrivial relevancy and the groundness of the answer using Openevals LLM-As-A-Judge (Can be turned on or off through .env)
 
 - **github_agent (gh_ag.py):**
   - Connects to GitHub via the MCP server (runs in Docker).
