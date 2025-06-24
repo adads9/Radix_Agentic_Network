@@ -67,7 +67,13 @@ The supervisor agent routes user requests to the correct agent(s) based on the n
 ---
 
 ## Usage
+Run the crawler file to initilize and build the knowledge base (only necassary when wanting to update the knowledge base)
+```sh
+python crawlers/radix_lightrag_crawl.py
+```
+---
 
+---
 Run the supervisor chat interface:
 ```sh
 python agents/agent_router.py
