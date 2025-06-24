@@ -1,18 +1,15 @@
+import asyncio
+#asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy()) # for Windows compatibility (Langgraph Studio)
 from langgraph_supervisor import create_supervisor
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_openai import ChatOpenAI, AzureChatOpenAI
-from worker import github_react_agent
+from langchain_openai import AzureChatOpenAI
+from github_agent import github_agent # use (agents.github_agent) when using langgraph studio
 from langchain_core.messages import HumanMessage
-import asyncio
-from github_agent import github_agent
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from lightrag_react_agent import docs_agent
-import subprocess, atexit, pathlib
+from lightrag_react_agent import docs_agent # only use (agents.lightrag_react_agent) when using langgraph studio
 import os
-from radix_validate import radix_linter_agent
-
-
-import os, subprocess, atexit, pathlib, sys
+from radix_validate import radix_linter_agent # only use (agents.radix_validate) when using langgraph studio
+import os
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -21,14 +18,14 @@ llm = AzureChatOpenAI(
     model=os.getenv("SUPERVISOR_LLM_MODEL"),
     api_key=os.getenv("API_KEY"),
     api_version=os.getenv("BASE_LLM_API_VERSION"), 
-    base_url=os.getenv("BASE_API_BASE"),
+    azure_endpoint=os.getenv("BASE_FOR_LIGHTRAG"),
     streaming=True,
     #callbacks=[StreamingStdOutCallbackHandler()],  # Uncomment for streaming output (streaming is tricky with several agents, so use with care)
 )    
 
 supervisor_graph = (
     create_supervisor(
-        agents=[docs_agent, github_react_agent, radix_linter_agent],     # three workers now
+        agents=[docs_agent, github_agent, radix_linter_agent],     # three workers now
         model=llm,
         prompt = """
                 You are the *Supervisor* in a multi-agent LangGraph system.
@@ -40,10 +37,10 @@ supervisor_graph = (
                   - Responsible for drafting files such as the radixconfig.yaml when requested.
 
                 • github_agent  
-                  - Uses a single tool, `github_exec`, that forwards ANY GitHub-related instruction (e.g. list repos, query user info, commit files, open PRs, etc.) to the GitHub MCP server.
+                  - Uses tools from the Github MCP server that for ANY GitHub-related instruction (e.g. list repos, query user info, commit files, open PRs, etc.).
 
                 • radix_linter_agent  
-                  - Validates a draft `radixconfig.yaml` using deterministic validators with the tools validate_yaml & apply_patch to report schema and style violations.
+                  - Validates a draft `radixconfig.yaml` using validator tools to report schema and style violations.
                   - Automatically applies patches when possible so the file passes `radix validate`.
 
                 ────────────────────  ROUTING POLICY  ────────────────────
@@ -66,6 +63,7 @@ supervisor_graph = (
 
                 ────────────────────  BEHAVIOUR RULES  ────────────────────
                 • Never call tools yourself — always delegate.
+                • When delegating, please ensure that you give the agent only the part of the task that it is supposed to do, as additional information might confuse the agent.
                 • Handle errors politely (e.g., missing docs → apologise; GitHub auth failure → apologise & ask for next steps).
                 • When you feel you have finished a task, check whether the user needs further actions (e.g., additional modifications using the github_agent after the docs_agent).
 
@@ -80,23 +78,22 @@ supervisor_graph = (
         add_handoff_back_messages=True,
         output_mode="full_history",
     )
-    .compile(checkpointer=MemorySaver())
+    .compile(checkpointer=MemorySaver(), name="Supervisor") # add checkpointer=MemorySaver() as a parameter to save the conversation history (Remove when using langgraph studio)
 )
 
 async def chat():
     thread_id = "cli"
     print("Supervisor ready. Type 'exit' to quit.")
     # supervisor start-up with the MCP servers for the github agent
-    async with github_agent.run_mcp_servers():
-        while True:
-            user = input("\nYou: ").strip()
-            if user.lower() in {"exit", "quit"}:
-                break
-            result = await supervisor_graph.ainvoke( 
-                {"messages": [HumanMessage(content=user)]},
-                config={"configurable": {"thread_id": thread_id}},
-            )
-            print("\nAssistant:", result["messages"][-1].content)
+    while True:
+        user = input("\nYou: ").strip()
+        if user.lower() in {"exit", "quit"}:
+            break
+        result = await supervisor_graph.ainvoke( 
+            {"messages": [HumanMessage(content=user)]},
+            config={"configurable": {"thread_id": thread_id}},
+        )
+        print("\nAssistant:", result["messages"][-1].content)
 
 if __name__ == "__main__":
     asyncio.run(chat())

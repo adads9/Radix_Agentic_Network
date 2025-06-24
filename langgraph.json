@@ -1,0 +1,8 @@
+{
+  "dependencies": [".", "langchain_mcp_adapters"],
+  "graphs": {
+    "radix_supervisor": "./agents/agent_router.py:supervisor_graph"
+  },
+
+  "env": "./.env"
+}

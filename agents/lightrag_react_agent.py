@@ -1,28 +1,3 @@
-"""
-
-This file sets up a LightRAG-based React agent for Radix documentation queries.
-The agent is used in agents\agent_router.py to handle Radix documentation queries and provide accurate responses based on the latest documentation for the network.
-
-
-It includes embedding setup, LLM model functions, and tools for retrieval and judging responses.
-This agent can retrieve information from Radix documentation, judge the relevance and groundedness of responses, and ensure that answers are accurate and well-supported by the retrieved context.
-It also includes optional MCP tools for fetching additional information if needed.
-
-
-
-Features:
-
-- Embedding setup using Azure OpenAI for text embeddings.
-- LLM model function for generating responses.
-- LightRAG initialization for document retrieval.
-- Tools for retrieving Radix documentation and judging responses.
-- LLM-as-Judge for evaluating the relevance and groundedness of responses.
-- React agent setup for handling Radix documentation queries.
-
-19.06.2025
-"""
-
-
 import os, sys, asyncio
 from pathlib import Path
 from dataclasses import dataclass
@@ -62,7 +37,6 @@ azure_point           = os.getenv("BASE_FOR_LIGHTRAG")
 lightrag_mode         = os.getenv("LIGHTRAG_MODE")
 judge_llm             = os.getenv("JUDGE_LLM_MODEL")
 judge                 = os.getenv("JUDGE_RESPONSE")
-# fetch                 = os.getenv("FETCH_MCP")
 
 
 
@@ -114,22 +88,6 @@ async def initialize_rag() -> LightRAG:
     return rag
 
 _global_rag = asyncio.run(initialize_rag())
-
-
-# Optional: Load MCP tools if fetch is enabled (commented out for now)
-"""
-# ---------- MCP Client ----------
-client = MultiServerMCPClient({
-  "fetch": {
-    "command": "python",
-    "args": ["-m", "mcp_server_fetch"],
-    "transport": "stdio",
-  }})
-
-async def load_mcp_tools() -> list[BaseTool]:
-    # Retrieve all tools from all configured MCP servers
-    return await client.get_tools()"""
-
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -260,19 +218,6 @@ prompt_for_retrival_judge=("You are a knowledgeable assistant designed to answer
                             "If you do not know the answer to the question, or cannot find the information in the docs, do not make up an answer and inform the user appropriately.\n")
 
 
-prompt_for_fetch=("You are a knowledgeable assistant designed to answer questions about Radix documentation.\n"
-                    f"Use the tools to extract pertinent information from the documentation from the Radix website: https://radix.equinor.com/ \n"
-                    "If the question is related to radix config, either to modify or to create a new one, please ensure that you are using the correct syntax and format.\n"
-                    "You should also do a deep-dive in the specifics of the radix config documentation: (https://radix.equinor.com/radix-config), ensuring that the produced result is including every detail that it needs.\n"
-                    "If the information is unavailable, provide your best general knowledge response, and clarify that the information is unavailable. "
-                    "If you do not know the answer to the question, or cannot find the information in the docs, do not make up an answer and inform the user appropiatly.\n")
-
-
-"""
-if fetch=='on':
-    fetch_mcp = asyncio.run(load_mcp_tools())
-    tools.extend(fetch_mcp)
-    prompt_to_use=prompt_for_fetch"""
 
 tools=[retrieve]
 prompt_to_use=prompt_for_retrival
