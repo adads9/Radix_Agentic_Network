@@ -52,7 +52,7 @@ The supervisor agent routes user requests to the correct agent(s) based on the n
     - `retrieve`: Using LightRAG For document retrieval and context-aware answering.
     - `judge_response`: Evaluate the retrivial relevancy and the groundness of the answer using Openevals LLM-As-A-Judge (Can be turned on or off through .env)
 
-- **github_agent (gh_ag.py):**
+- **github_agent (github_agent.py):**
   - Connects to GitHub via the MCP server (runs in Docker).
   - Handles all GitHub-related actions (repo listing, PRs, commits, etc.).
   - Tools:
