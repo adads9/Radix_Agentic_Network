@@ -29,12 +29,12 @@ llm = AzureChatOpenAI(
 fetch = os.getenv("FETCH_MCP")
 
 try:
-    from ruamel.yaml import YAML  # type: ignore
+    from ruamel.yaml import YAML  
 
     _ruamel = True
     _yaml_rt = YAML()
     _yaml_rt.preserve_quotes = True
-except ImportError:  # pragma: no cover – ruamel.yaml not installed
+except ImportError:  
     _ruamel = False
 
 
@@ -55,7 +55,7 @@ def _schema():
 
 
 def _collect_schema_errors(yaml_text: str) -> Tuple[bool, List[str]]:
-    """Validate YAML against Radix JSON‑Schema and collect **all** errors with field paths."""
+    """Validate YAML against Radix JSON‑Schema and collect all errors with field paths."""
     schema = _schema()
     data = yaml.safe_load(yaml_text)
     validator = jsonschema.Draft202012Validator(schema)
