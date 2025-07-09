@@ -34,7 +34,7 @@ from pydantic_ai import Agent
 from pydantic_ai.mcp import MCPServerStdio
 from langgraph.graph.message import add_messages
 from tenacity import retry, stop_after_attempt, wait_exponential
-from openai import AsyncAzureOpenAI           # new OpenAI v1.x client
+from openai import AsyncAzureOpenAI           
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.azure import AzureProvider
 
