@@ -9,7 +9,7 @@ rules:
     given: $.apiVersion
     then:
       function: pattern
-      functionOptions: { match: "^radix\\.equinor\\.com\\/v1$" }   #  ✔ spec  :contentReference[oaicite:0]{index=0}
+      functionOptions: { match: "^radix\\.equinor\\.com\\/v1$" }   
 
   radix-kind:
     description: kind must be RadixApplication
@@ -17,7 +17,7 @@ rules:
     given: $.kind
     then:
       function: pattern
-      functionOptions: { match: "^RadixApplication$" }            #  ✔ spec  :contentReference[oaicite:1]{index=1}
+      functionOptions: { match: "^RadixApplication$" }            
 
   unknown-spec-keys:
     description: Disallow unknown fields under spec
@@ -29,7 +29,7 @@ rules:
         schema:
           type: object
           properties: { build: {}, environments: {}, components: {} }
-          additionalProperties: false                             #  flags buildRules/promotion  :contentReference[oaicite:2]{index=2}
+          additionalProperties: false                            
 
   # ────────── Components ──────────
   component-name-case:
@@ -38,7 +38,7 @@ rules:
     given: $.spec.components[*].name
     then:
       function: pattern
-      functionOptions: { match: "^[a-z0-9-]+$" }                  #  ✔ examples  :contentReference[oaicite:3]{index=3}
+      functionOptions: { match: "^[a-z0-9-]+$" }                  
 
   dockerfile-key:
     description: require dockerfileName **or** dockerfile
@@ -46,7 +46,7 @@ rules:
     given: $.spec.components[*]
     then:
       function: or
-      functionOptions: { properties: ["dockerfileName","dockerfile"] }  #  ✔ build guide  :contentReference[oaicite:4]{index=4}
+      functionOptions: { properties: ["dockerfileName","dockerfile"] }  
 
   ports-array-valid:
     description: ports must be an array of objects with name+port
@@ -70,7 +70,7 @@ rules:
       function: enumeration
       functionOptions:
         values:
-          - "$..ports[*].name"                                    # Spectral 7 resolves this JSONPath  :contentReference[oaicite:5]{index=5}
+          - "$..ports[*].name"                                    
 
   component-unknown-keys:
     description: Disallow unknown keys in a component
@@ -101,7 +101,7 @@ rules:
   health-check-path:
     description: readiness/liveness path must start with /
     severity: error
-    given: $.spec.components[*].healthChecks.*.path              #  new component-level placement  :contentReference[oaicite:6]{index=6}
+    given: $.spec.components[*].healthChecks.*.path             
     then:
       function: pattern
       functionOptions: { match: "^/" }
@@ -110,7 +110,7 @@ rules:
   triggerPath-required:
     given: $.spec.build.triggerPath
     severity: error
-    then: { function: truthy }                                   #  replaces buildRules  :contentReference[oaicite:7]{index=7}
+    then: { function: truthy }                                   
 
   replicas-limit:
     given: $.spec.components[*].environmentConfig[*].replicas
