@@ -154,10 +154,10 @@ async def retrieve(search_query: str) -> str:
     result = await _global_rag.aquery(
         search_query,
         param=QueryParam(
-            mode=lightrag_mode,   # we want answer + context  # **NEW** as of LightRAG ≥0.5.0
+            mode=lightrag_mode,   
         )
     )
-    return result  # {"answer": str, "contexts": [...]}  :contentReference[oaicite:6]{index=6}
+    return result
 
 
 @tool
