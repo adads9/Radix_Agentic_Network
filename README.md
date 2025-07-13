@@ -16,6 +16,13 @@ The supervisor agent routes user requests to the correct agent(s) based on the n
 
 ---
 
+## Prerequisite
+
+- **Docker** (Download Docker Desktop and let it run, needed by the GitHub MCP)
+- **Python** 3.11 or later
+- **Run pip install -r requirements.txt**
+  
+---
 ## Architecture
 
 - **Entry Point:** `agents/agent_router.py` (main supervisor and chat loop)
